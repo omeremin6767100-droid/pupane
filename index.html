@@ -26,9 +26,10 @@ canvas{display:block;width:100vw;height:100vh;image-rendering:pixelated}
   <h1>PİKSEL ŞEHİR</h1>
   <p>Tek ekranda 2 kişilik · yandan görünüm · açık dünya</p>
   <div class="cols">
-    <div class="col p1"><b>OYUNCU 1</b><br><b>A / D</b> yürü (arabada gaz)<br><b>W</b> zıpla (arabada turbo)<br><b>S</b> platformdan in (arabada fren)<br><b>F</b> arabaya bin / in<br><b>Q</b> P2'nin yanına ışınlan</div>
-    <div class="col p2"><b>OYUNCU 2</b><br><b>← / →</b> yürü (arabada gaz)<br><b>↑</b> zıpla (arabada turbo)<br><b>↓</b> platformdan in (arabada fren)<br><b>Enter</b> arabaya bin / in<br><b>Sağ Shift</b> P1'in yanına ışınlan</div>
+    <div class="col p1"><b>OYUNCU 1</b><br><b>A / D</b> yürü (arabada gaz)<br><b>W</b> zıpla (arabada turbo)<br><b>S</b> platformdan in (arabada fren)<br><b>F</b> arabaya bin / in<br><b>E</b> yumruk<br><b>Q</b> P2'nin yanına ışınlan</div>
+    <div class="col p2"><b>OYUNCU 2</b><br><b>← / →</b> yürü (arabada gaz)<br><b>↑</b> zıpla (arabada turbo)<br><b>↓</b> platformdan in (arabada fren)<br><b>Enter</b> arabaya bin / in<br><b>L</b> yumruk<br><b>Sağ Shift</b> P1'in yanına ışınlan</div>
   </div>
+  <p><b>MODLAR</b> (üstteki butonlar ya da <b>1 · 2 · 3</b> tuşları): <b>1</b> NPC'ler rastgele gezer · <b>2</b> tornado araba ve NPC'leri uçurur · <b>3</b> tüm NPC'ler size saldırır (yumruk = −10 can). İkinizin de 100 canı var.</p>
   <p>Binaların altından arabayla geçebilir, üst katlara zıplayarak çıkabilir, çatıya kadar gidebilirsiniz.<br>Aynı arabaya ikiniz de binebilirsiniz (ilk binen sürer). <b>P</b> = duraklat</p>
   <div class="go">— herhangi bir tuşa bas —</div>
 </div></div>
@@ -85,7 +86,7 @@ const pick=a=>a[Math.floor(rnd()*a.length)];
 function spawnCar(type,x,face){
   const d=CT[type];
   cars.push({type,x,y:GY*T-d.h-1,w:d.w,h:d.h,vx:0,vy:0,onGround:false,step:18,max:d.max,col:pick(COLS),
-    driver:null,passenger:null,face:face||1,dx:0,sleep:false,px:x,drop:0});
+    driver:null,passenger:null,face:face||1,dx:0,sleep:false,px:x,drop:0,rot:0,vr:0,fly:0,ts:0});
 }
 function makeGap(gx,len,kind){
   const yb=GY*T;
@@ -225,13 +226,275 @@ function carSprite(type,col){
 
 /* ============ OYUNCULAR ============ */
 function mkPlayer(id,x,shirt,hat){return{id,x,y:GY*T-22,w:10,h:22,vx:0,vy:0,onGround:false,face:1,step:17,drop:0,car:null,ride:null,
-  shirt,hat,anim:0,px:x,k:{},near:null}}
+  shirt,hat,anim:0,px:x,k:{},near:null,hp:100,hurt:0,inv:0,dead:0,punch:0,pcd:0}}
 const P1=mkPlayer(1,(CX0+6)*T,'#f08a24','#c0392b');
 const P2=mkPlayer(2,(CX0+8)*T,'#2f7fe0','#1f4fa0');
 const players=[P1,P2];
+
+/* ============ MODLAR, NPC, TORNADO, CAN ============ */
+const TR=380;
+let mode=1,tornado=null;
+const tornS=ex=>tornado?Math.max(0,1-Math.abs(ex-tornado.x)/TR):0;
+function setMode(m){
+  mode=m;tornado=null;
+  if(m===2){
+    const a=ctr(P1),b=ctr(P2);
+    const x=Math.max(CX0*T+300,Math.min(CX1*T-300,(a.x+b.x)/2+(Math.random()<.5?-1:1)*600));
+    tornado={x,y:surf[Math.floor(x/T)]*T};
+  }
+  for(const n of npcs)n.cd=.6;
+}
+const NSHIRT=['#c0392b','#2c6fbb','#2e8b57','#b9770e','#7d3c98','#1f7a8c','#d35d9a','#6b7280','#e8e8e8'];
+const NHAIR=['#3b2414','#111','#e8c050','#8a4b1f','#bbbbbb','#c0392b'];
+const npcs=[];
+function npcSpot(){
+  if(rnd()<.6)return{x:(CX0+10+rnd()*(CX1-CX0-20))*T,y:GY*T-24};
+  const b=pick(buildings),k=Math.floor(rnd()*b.fl);
+  return{x:(b.x0+3+rnd()*(b.w-6))*T,y:(GY-6-4*k)*T-24};
+}
+function resetNPC(n){
+  const s=npcSpot();
+  n.x=s.x;n.y=s.y;n.vx=n.vy=0;n.hp=40;n.dead=0;n.ragdoll=false;n.rot=0;n.step=17;n.fly=0;n.onGround=false;
+}
+for(let i=0;i<140;i++){
+  const n={id:i,w:10,h:22,vx:0,vy:0,onGround:false,step:17,drop:0,face:1,shirt:pick(NSHIRT),hair:pick(NHAIR),
+    hp:40,ragdoll:false,rt:0,rot:0,vr:0,lie:1,dead:0,dir:rnd()<.5?-1:1,timer:rnd()*4,idle:false,spd:40+rnd()*30,
+    anim:rnd()*6,cd:0,punch:0,hitCd:0,fly:0};
+  resetNPC(n);npcs.push(n);
+}
+function startRag(n,vx,vy){
+  n.ragdoll=true;n.vx=vx;n.vy=vy;n.onGround=false;n.step=0;
+  n.vr=(vx>=0?1:-1)*(7+Math.random()*5);n.lie=vx>=0?1:-1;n.rt=2.2;
+}
+function damageNPC(n,dmg,vx,vy){
+  if(n.dead>0)return;
+  n.hp-=dmg;n.hitCd=.35;startRag(n,vx,vy);
+  if(n.hp<=0)n.dead=6;
+}
+function ragdollPhys(n,dt){
+  n.vy=Math.min(n.vy+G*dt,1000);
+  if(n.onGround)n.vx*=Math.pow(.015,dt);
+  const was=n.onGround;
+  moveX(n,n.vx*dt);moveY(n,n.vy*dt);
+  if(n.onGround){
+    if(!was)n.rot=mod(n.rot+Math.PI,2*Math.PI)-Math.PI;
+    n.vr=0;n.rot+=(n.lie*Math.PI/2-n.rot)*Math.min(1,14*dt);
+  }else n.rot+=n.vr*dt;
+}
+function hurtPlayer(p,dmg,dir){
+  if(p.dead>0||p.inv>0)return;
+  p.hp=Math.max(0,p.hp-dmg);p.inv=.5;p.hurt=.3;p.vx=dir*220;p.vy=-200;p.onGround=false;p.ride=null;
+  if(p.hp<=0)killPlayer(p);
+}
+function killPlayer(p){
+  p.hp=0;
+  if(p.car){
+    const c=p.car;
+    if(c.driver===p)c.driver=null;else c.passenger=null;
+    if(!c.driver&&c.passenger){c.driver=c.passenger;c.passenger=null}
+    p.car=null;p.x=c.x+c.w/2-p.w/2;p.y=c.y-p.h-2;
+  }
+  p.dead=3;p.vx=0;p.vy=-150;p.onGround=false;p.ride=null;
+}
+function respawnPlayer(p){
+  const o=players[p.id===1?1:0];
+  p.hp=100;p.vx=p.vy=0;p.inv=1.5;p.hurt=0;
+  if(o.dead<=0){const oc=ctr(o);p.x=oc.x-5+(p.id===1?-24:24);p.y=o.car?o.car.y-30:o.y}
+  else{p.x=(CX0+6)*T;p.y=GY*T-24}
+}
+function doPunch(p,o){
+  p.punch=.18;p.pcd=.4;
+  const f=p.face>=0?1:-1,hx0=f>0?p.x+p.w-2:p.x-20,hx1=hx0+22,hy0=p.y-4,hy1=p.y+p.h+2;
+  for(const n of npcs){
+    if(n.dead>0)continue;
+    if(n.x+n.w>hx0&&n.x<hx1&&n.y+n.h>hy0&&n.y<hy1)damageNPC(n,10,f*260,-230);
+  }
+  if(!o.car&&o.dead<=0&&o.x+o.w>hx0&&o.x<hx1&&o.y+o.h>hy0&&o.y<hy1)hurtPlayer(o,10,f);
+}
+function updNPC(n,dt){
+  if(n.hitCd>0)n.hitCd-=dt;
+  const s=tornS(n.x+5);
+  if(s>.05){
+    if(n.dead<=0&&!n.ragdoll)startRag(n,(Math.random()-.5)*200,-100);
+    if(n.fly<=0&&n.vr===0)n.vr=(Math.random()<.5?-1:1)*8;
+    n.fly=.5;
+  }
+  if(n.fly>0){
+    n.fly-=dt;
+    if(s>0){n.vx+=((tornado.x-(n.x+5))*2.2+Math.sin(gameTime*5+n.id)*500)*s*dt;n.vy+=G*dt-G*2.6*s*dt}
+    else n.vy+=G*dt;
+    n.vx*=1-.8*dt;n.vy=Math.max(-600,Math.min(900,n.vy));
+    n.x+=n.vx*dt;n.y+=n.vy*dt;n.rot+=n.vr*dt;n.onGround=false;
+    n.x=Math.max(3*T,Math.min((WT-3)*T-n.w,n.x));n.y=Math.max(tornado?tornado.y-900:0,n.y);
+    if(n.fly<=0){let g=0;while(hitSolid(n)&&g++<80)n.y-=8}
+    return;
+  }
+  if(n.dead>0){ragdollPhys(n,dt);n.dead-=dt;if(n.dead<=0)resetNPC(n);return}
+  if(n.ragdoll){
+    ragdollPhys(n,dt);
+    if(n.onGround){n.rt-=dt;if(n.rt<=0){n.ragdoll=false;n.rot=0;n.step=17;n.y-=4;n.vx=0}}
+    return;
+  }
+  if(n.cd>0)n.cd-=dt;
+  if(n.punch>0)n.punch-=dt;
+  let want=0,run=n.spd,t=null;
+  if(mode===3){
+    let best=1e9;
+    for(const p of players){
+      if(p.car||p.dead>0)continue;
+      if(Math.abs(p.x-n.x)>1000||Math.abs(p.y-n.y)>400)continue;
+      const d=Math.abs(p.x-n.x)+Math.abs(p.y-n.y)*2;
+      if(d<best){best=d;t=p}
+    }
+  }
+  if(t){
+    const dx=t.x-n.x;
+    run=115;want=Math.abs(dx)>16?Math.sign(dx):0;n.face=Math.sign(dx)||n.face;
+    if(Math.abs(dx)<26&&Math.abs(t.y-n.y)<30&&n.cd<=0){n.cd=1;n.punch=.2;hurtPlayer(t,10,Math.sign(dx)||1)}
+    if(n.onGround&&t.y<n.y-26&&Math.abs(dx)<140){n.vy=-480;n.onGround=false}
+  }else{
+    n.timer-=dt;
+    if(n.timer<=0){n.timer=2+Math.random()*5;n.idle=Math.random()<.3;n.dir=Math.random()<.5?-1:1}
+    want=n.idle?0:n.dir;
+  }
+  n.vx+=(want*run-n.vx)*Math.min(1,10*dt);
+  if(want)n.face=want;
+  n.vy=Math.min(n.vy+G*dt,900);
+  moveX(n,n.vx*dt);moveY(n,n.vy*dt);
+  if(want&&n.vx===0){if(t){if(n.onGround){n.vy=-440;n.onGround=false}}else n.dir=-n.dir}
+  if(n.onGround&&Math.abs(n.vx)>8)n.anim+=Math.abs(n.vx)*dt*.1;
+}
+function updTornado(dt){
+  if(!tornado)return;
+  const a=ctr(P1),b=ctr(P2),tgt=(a.x+b.x)/2+Math.sin(gameTime*.17)*650;
+  tornado.x+=Math.max(-130,Math.min(130,(tgt-tornado.x)*.5))*dt;
+  tornado.x=Math.max(CX0*T,Math.min(CX1*T,tornado.x));
+  tornado.y=surf[Math.floor(tornado.x/T)]*T;
+}
+function carHit(c,spd){
+  for(const n of npcs){
+    if(n.dead>0||n.hitCd>0||Math.abs(n.x-c.x)>c.w+40)continue;
+    if(n.x+n.w>c.x&&n.x<c.x+c.w&&n.y+n.h>c.y+2&&n.y<c.y+c.h){
+      const d=Math.sign(c.vx)||1;
+      damageNPC(n,Math.min(40,spd*.07),c.vx*1.05+d*60,-280);
+    }
+  }
+  if(spd>230)for(const p of players){
+    if(p.car||p.dead>0||p.inv>0||p.ride===c)continue;
+    if(p.x+p.w>c.x&&p.x<c.x+c.w&&p.y+p.h>c.y+4&&p.y<c.y+c.h){hurtPlayer(p,10,Math.sign(c.vx)||1);p.vx=c.vx*.6}
+  }
+}
+function updWorldExtras(dt){
+  const a=ctr(P1),b=ctr(P2);
+  for(const n of npcs){
+    const near=Math.abs(n.x-a.x)<1800||Math.abs(n.x-b.x)<1800||(tornado&&Math.abs(n.x-tornado.x)<900);
+    if(near)updNPC(n,dt);
+  }
+  for(const c of cars){
+    const spd=c.fly>0?Math.hypot(c.vx,c.vy):Math.abs(c.vx);
+    if(spd>=150)carHit(c,spd);
+  }
+  if(tornado)for(const p of players){
+    if(p.dead>0)continue;
+    const s=tornS(ctr(p).x);
+    if(s>.3){p.hp-=6*s*dt;if(p.hp<=0)killPlayer(p)}
+  }
+}
+const modeBtns=[];
+cv.addEventListener('mousedown',e=>{
+  if(!started)return;
+  const r=cv.getBoundingClientRect(),mx=(e.clientX-r.left)*W/r.width,my=(e.clientY-r.top)*H/r.height;
+  modeBtns.forEach((b,i)=>{if(mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h)setMode(i+1)});
+});
+addEventListener('keydown',e=>{if(started&&/^(Digit|Numpad)[123]$/.test(e.code))setMode(+e.code.slice(-1))});
+
+function drawFigure(cx,cy,rot,face,shirt,hair,o,hat){
+  ctx.save();
+  ctx.translate(Math.round((cx-camX)*scale),Math.round((cy-camY)*scale));
+  ctx.rotate(rot);ctx.scale(scale*(face<0?-1:1),scale);
+  const fr=(x,y,w,h,c)=>{ctx.fillStyle=c;ctx.fillRect(x,y,w,h)};
+  const limb=(px,py,a,w,h,c)=>{ctx.save();ctx.translate(px,py);ctx.rotate(a);ctx.fillStyle=c;ctx.fillRect(-w/2,0,w,h);ctx.restore()};
+  limb(-2,5,o.l1||0,4,6.5,'#2c3a5a');limb(2,5,o.l2||0,4,6.5,'#2c3a5a');
+  limb(-5,-3,o.a1||0,3,7,'#f0c090');
+  fr(-5,-4,10,9,shirt);
+  fr(-4,-11,8,7,'#f0c090');fr(-4,-12,8,3,hair);
+  if(hat)fr(-5,-13,10,3,hat);
+  fr(1,-8,2,2,'#111');
+  if(o.punch)limb(5,-3,-Math.PI/2,3,10,'#f0c090');else limb(5,-3,o.a2||0,3,7,'#f0c090');
+  ctx.restore();
+}
+function drawNPCs(){
+  const vx0=camX-60,vx1=camX+W/scale+60,vy0=camY-60,vy1=camY+H/scale+60;
+  for(const n of npcs){
+    if(n.x<vx0||n.x>vx1||n.y<vy0||n.y>vy1)continue;
+    let o;
+    if(n.ragdoll||n.dead>0){
+      const air=!n.onGround,t=gameTime*10+n.id;
+      o=air?{l1:Math.sin(t)*1.2,l2:Math.sin(t+2)*1.2,a1:Math.sin(t+1)*1.5,a2:Math.sin(t+3)*1.5}:{l1:.35,l2:-.25,a1:.6,a2:-.5};
+    }else{
+      const ph=Math.sin(n.anim*2),mv=Math.abs(n.vx)>8;
+      o={l1:mv?ph*.75:0,l2:mv?-ph*.75:0,a1:mv?-ph*.6:0,a2:mv?ph*.6:0,punch:n.punch>0};
+    }
+    if(n.dead>0)ctx.globalAlpha=.6;
+    drawFigure(n.x+5,n.y+11,n.rot,n.face,mode===3&&!n.ragdoll&&n.dead<=0?shade(n.shirt.length===7?n.shirt:'#888888',-30):n.shirt,n.hair,o);
+    ctx.globalAlpha=1;
+    if(mode===3&&!n.ragdoll&&n.dead<=0){
+      ctx.fillStyle='#ff3030';ctx.font=`bold ${Math.max(8,Math.round(10*scale))}px monospace`;ctx.textAlign='center';ctx.textBaseline='bottom';
+      ctx.fillText('!',sx(n.x+5),sy(n.y-3));
+    }
+  }
+}
+function drawTornado(){
+  if(!tornado)return;
+  const gy=tornado.y,N=38;
+  for(let i=0;i<N;i++){
+    const y=gy-i*22,hw=16+i*4.4,ox=Math.sin(gameTime*2.4+i*.33)*(6+i*1.3),a=.42+.1*Math.sin(i+gameTime*5);
+    R(tornado.x+ox-hw,y-22,hw*2,23,i%2?`rgba(120,126,138,${a})`:`rgba(92,98,110,${a})`);
+    R(tornado.x+ox-hw*.35,y-22,hw*.7,23,`rgba(50,55,66,${a*.7})`);
+  }
+  for(let j=0;j<46;j++){
+    const ang=gameTime*(2+(j%5)*.4)+j,lv=j%N,rr=(16+lv*4.4)*1.08;
+    if(Math.sin(ang)<-.15)continue;
+    R(tornado.x+Math.cos(ang)*rr,gy-lv*22,4,3,j%3?'#3a3d46':'#6a4426');
+  }
+}
+function overHead(){
+  for(const p of players){
+    if(p.car)continue;
+    if(p.dead>0){
+      ctx.fillStyle='#ff6060';ctx.font=`bold ${Math.max(8,Math.round(10*scale))}px monospace`;ctx.textAlign='center';ctx.textBaseline='bottom';
+      ctx.fillText('ÖLDÜ '+Math.ceil(p.dead),sx(p.x+5),sy(p.y-6));continue;
+    }
+    if(p.hp<100){
+      R(p.x-5,p.y-23,20,3,'#000');
+      const r=p.hp/100;R(p.x-5,p.y-23,20*r,3,r>.5?'#3fcf5a':r>.25?'#f0c030':'#e03a3a');
+    }
+  }
+}
+function drawExtraHUD(){
+  const dpi=Math.max(1,Math.min(2,W/900));
+  players.forEach((p,i)=>{
+    const bw=Math.round(170*dpi),bh=Math.round(11*dpi),y=10+Math.round(24*dpi),x=i===0?12:W-12-bw;
+    ctx.fillStyle='rgba(0,0,0,.65)';ctx.fillRect(x-2,y-2,bw+4,bh+4);
+    const r=Math.max(0,p.hp)/100;
+    ctx.fillStyle=r>.5?'#3fcf5a':r>.25?'#f0c030':'#e03a3a';ctx.fillRect(x,y,bw*r,bh);
+    ctx.fillStyle='#fff';ctx.font=`bold ${Math.round(10*dpi)}px monospace`;ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(Math.ceil(p.hp)+' / 100',x+bw/2,y+bh/2+1);
+  });
+  const labels=['1 · GEZİNME','2 · TORNADO','3 · SALDIRI'],cols=['#3fa65a','#6f8fb5','#d04545'];
+  const bw=Math.round(124*dpi),bh=Math.round(24*dpi),gap=8,x0=(W-(bw*3+gap*2))/2,y=40+Math.round(14*dpi)+8;
+  for(let i=0;i<3;i++){
+    const x=x0+i*(bw+gap),on=mode===i+1;
+    modeBtns[i]={x,y,w:bw,h:bh};
+    ctx.fillStyle=on?cols[i]:'rgba(0,0,0,.6)';ctx.fillRect(x,y,bw,bh);
+    ctx.strokeStyle=on?'#fff':cols[i];ctx.lineWidth=2;ctx.strokeRect(x+1,y+1,bw-2,bh-2);
+    ctx.fillStyle='#fff';ctx.font=`bold ${Math.round(11*dpi)}px monospace`;ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(labels[i],x+bw/2,y+bh/2+1);
+  }
+}
 const BIND=[
-  {left:['KeyA'],right:['KeyD'],up:['KeyW'],down:['KeyS'],use:['KeyF'],tp:['KeyQ']},
-  {left:['ArrowLeft'],right:['ArrowRight'],up:['ArrowUp'],down:['ArrowDown'],use:['Enter','NumpadEnter'],tp:['ShiftRight']}
+  {left:['KeyA'],right:['KeyD'],up:['KeyW'],down:['KeyS'],use:['KeyF'],tp:['KeyQ'],punch:['KeyE']},
+  {left:['ArrowLeft'],right:['ArrowRight'],up:['ArrowUp'],down:['ArrowDown'],use:['Enter','NumpadEnter'],tp:['ShiftRight'],punch:['KeyL']}
 ];
 
 /* ============ GİRİŞ ============ */
@@ -279,6 +542,17 @@ function moveY(e,dy){
 }
 function updCar(c,dt){
   c.dx=0;
+  if(tornado){const s=tornS(c.x+c.w/2);c.ts=s;if(s>.05){if(c.fly<=0)c.vr=(Math.random()-.5)*7;c.fly=.5;c.sleep=false}}else c.ts=0;
+  if(c.fly>0){
+    c.fly-=dt;const s=c.ts,ox=c.x;
+    if(s>0){c.vx+=((tornado.x-(c.x+c.w/2))*1.6+Math.sin(gameTime*4+c.px*.01)*420)*s*dt;c.vy+=G*dt-G*2.4*s*dt}
+    else c.vy+=G*dt;
+    c.vx*=1-.5*dt;c.vy=Math.max(-520,Math.min(900,c.vy));
+    c.x+=c.vx*dt;c.y+=c.vy*dt;c.rot+=c.vr*dt;c.onGround=false;
+    c.x=Math.max(3*T,Math.min((WT-3)*T-c.w,c.x));c.y=Math.max(tornado?tornado.y-900:0,c.y);c.dx=c.x-ox;
+    if(c.fly<=0){let g=0;while(hitSolid(c)&&g++<100)c.y-=8}
+    return;
+  }
   if(c.sleep&&!c.driver)return;
   let dir=0,boost=false,brake=false;
   if(c.driver){const k=c.driver.k;dir=(k.right?1:0)-(k.left?1:0);boost=!!k.up;brake=!!k.down}
@@ -292,20 +566,35 @@ function updCar(c,dt){
   c.vy=Math.min(c.vy+G*dt,900);
   const ox=c.x;moveX(c,c.vx*dt);moveY(c,c.vy*dt);c.dx=c.x-ox;
   if(Math.abs(c.vx)>8)c.face=Math.sign(c.vx);
-  if(!c.driver&&c.vx===0&&c.onGround)c.sleep=true;
+  if(c.rot){
+    if(c.onGround){c.rot=mod(c.rot+Math.PI,2*Math.PI)-Math.PI;c.rot*=Math.max(0,1-14*dt);if(Math.abs(c.rot)<.04)c.rot=0}
+    else c.rot+=c.vr*dt;
+  }
+  if(!c.driver&&c.vx===0&&c.onGround&&!c.rot)c.sleep=true;
 }
 function updPlayer(p,dt){
+  if(p.hurt>0)p.hurt-=dt;if(p.inv>0)p.inv-=dt;if(p.punch>0)p.punch-=dt;if(p.pcd>0)p.pcd-=dt;
+  if(p.dead>0){
+    p.dead-=dt;p.ride=null;p.vy=Math.min(p.vy+G*dt,900);p.vx*=Math.pow(.02,dt);
+    moveX(p,p.vx*dt);moveY(p,p.vy*dt);
+    if(p.dead<=0)respawnPlayer(p);
+    return;
+  }
   if(p.car){const c=p.car;p.x=c.x+c.w/2-p.w/2;p.y=c.y+c.h/2-p.h/2;p.vx=c.vx;p.vy=0;p.ride=null;return}
   const k=p.k,ax=(k.right?1:0)-(k.left?1:0);
   if(p.ride){p.x+=p.ride.dx;p.y=p.ride.y-p.h;p.ride=null}
-  const target=ax*150;
-  p.vx+=(target-p.vx)*Math.min(1,(p.onGround?16:5)*dt);
-  if(!ax&&Math.abs(p.vx)<4)p.vx=0;
+  const ctl=p.hurt<=.2,target=ax*150;
+  if(ctl)p.vx+=(target-p.vx)*Math.min(1,(p.onGround?16:5)*dt);
+  if(ctl&&!ax&&Math.abs(p.vx)<4)p.vx=0;
   if(ax){p.face=ax}
   if(k.up&&p.onGround){p.vy=-480;p.onGround=false}
   if(k.down&&p.onGround)p.drop=.22;
   if(p.drop>0)p.drop-=dt;
   p.vy=Math.min(p.vy+G*dt,900);
+  if(tornado){
+    const s=tornS(p.x+5);
+    if(s>.05){p.vx+=((tornado.x-(p.x+5))*1.2+Math.sin(gameTime*6)*180)*s*dt;p.vy=Math.max(-700,p.vy-G*1.9*s*dt)}
+  }
   moveX(p,p.vx*dt);
   const ob=moveY(p,p.vy*dt);
   if(p.vy>=0&&!(p.drop>0)){
@@ -333,8 +622,10 @@ function tether(){
 function step(dt){
   for(const c of cars)c.px=c.x;
   for(const p of players)p.px=p.x;
+  updTornado(dt);
   for(const c of cars)updCar(c,dt);
   for(const p of players)updPlayer(p,dt);
+  updWorldExtras(dt);
   for(const p of players)if(p.car)p.px=p.car.px;
   tether();
 }
@@ -342,6 +633,8 @@ function handleActions(){
   players.forEach((p,i)=>{
     const b=BIND[i];
     p.k={left:down(b.left),right:down(b.right),up:down(b.up),down:down(b.down)};
+    if(p.dead>0){p.k={};return}
+    if(pressed(b.punch)&&!p.car&&p.pcd<=0)doPunch(p,players[1-i]);
     // yakındaki araba
     p.near=null;
     if(!p.car){
@@ -488,6 +781,12 @@ function drawHead(x,y,p){
 }
 function drawCar(c){
   const spr=carSprite(c.type,c.col);
+  if(Math.abs(c.rot)>.02){
+    const Wd=c.w*scale,Hd=c.h*scale;
+    ctx.save();ctx.translate(sx(c.x+c.w/2),sy(c.y+c.h/2));ctx.rotate(c.rot);
+    if(c.face<0)ctx.scale(-1,1);
+    ctx.drawImage(spr,-Wd/2,-Hd/2,Wd,Hd);ctx.restore();return;
+  }
   const X=sx(c.x),Y=sy(c.y),Wd=sx(c.x+c.w)-X,Hd=sy(c.y+c.h)-Y;
   ctx.save();
   if(c.face<0){ctx.translate(X+Wd,Y);ctx.scale(-1,1);ctx.drawImage(spr,0,0,Wd,Hd)}
@@ -502,6 +801,7 @@ function drawCar(c){
 }
 function drawPlayer(p){
   if(p.car)return;
+  if(p.dead>0){drawFigure(p.x+5,p.y+11,(p.face>=0?1:-1)*Math.PI/2,p.face,p.shirt,p.id===1?'#3b2414':'#e8c050',{l1:.3,l2:-.2,a1:.5,a2:-.4},p.hat);return}
   const x=p.x,y=p.y,f=p.face;
   const ph=Math.sin(p.anim*2),walk=p.onGround&&Math.abs(p.vx)>10;
   const air=!p.onGround;
@@ -515,6 +815,7 @@ function drawPlayer(p){
   const l1=walk?(ph>0?0:2):0,l2=walk?(ph>0?2:0):0;
   R(x+1,y+16,4,6-l1,'#2c3a5a');R(x+5,y+16,4,6-l2,'#2c3a5a');
   R(x+1,y+22-l1-1,4,1,'#111');R(x+5,y+22-l2-1,4,1,'#111');
+  if(p.punch>0)R(f>0?x+10:x-10,y+9,10,3,'#f0c090');
   ctx.fillStyle=p.id===1?'#ffb35c':'#7fbcff';ctx.font=`bold ${Math.max(7,Math.round(9*scale))}px monospace`;ctx.textAlign='center';ctx.textBaseline='bottom';
   ctx.fillText('P'+p.id,sx(x+5),sy(y-5));
   if(p.near){
@@ -593,9 +894,14 @@ function render(){
   ctx.textAlign='center';
   for(const d of decor){if(d.x<vx0||d.x>vx1||d.y<vy0||d.y>vy1+120)continue;drawDecor(d)}
   for(const c of cars){if(c.x<vx0-120||c.x>vx1)continue;drawCar(c)}
-  for(const p of players)drawPlayer(p);
+  drawNPCs();
+  for(const p of players){ctx.globalAlpha=(p.inv>0&&((gameTime*24)|0)%2)?.45:1;drawPlayer(p);ctx.globalAlpha=1}
+  overHead();
+  drawTornado();
+  if(mode===2){ctx.fillStyle='rgba(40,48,60,.28)';ctx.fillRect(0,0,W,H)}
   drawNight(vis);
   drawHUD();
+  drawExtraHUD();
 }
 let last=performance.now(),acc=0,first=true;
 function frame(now){
